@@ -1,139 +1,170 @@
+-- ESP Library
 local ESP = {}
+
+-- Настройки
 ESP.Settings = {
-    Players = true, -- Включение ESP для игроков
-    Objects = true, -- Включение ESP для объектов
-    Names = true, -- Показывать имена
-    Boxes = true, -- Показывать боксы
-    Highlight = true, -- Подсветка
-    HealthText = true, -- Отображать здоровье
-    Distance = true, -- Показывать дистанцию
-    Weapon = true, -- Показывать оружие
-    TeamCheck = true, -- Проверка команды
-    MaxDistance = 100, -- Максимальная дистанция отображения
-    UpdateRate = 0.1, -- Частота обновления ESP в секундах (уменьшите для ещё меньшей нагрузки)
+    Players = true,       -- Включить ESP для игроков
+    Objects = false,      -- Включить ESP для объектов
+    Names = true,         -- Показывать имена
+    Boxes = true,         -- Показывать боксы
+    Highlight = true,     -- Подсветка
+    Distance = true,      -- Показывать дистанцию
+    HealthText = true,    -- Показывать здоровье (только для игроков)
+    Weapon = true,        -- Показывать оружие (только для игроков)
+    TeamCheck = false,    -- Проверка команды
+    MaxDistance = 200     -- Максимальная дистанция для ESP
 }
 
--- Настройки цветов
+-- Цвета
 ESP.Colors = {
-    Enemy = Color3.fromRGB(255, 0, 0), -- Красный для врагов
-    Ally = Color3.fromRGB(0, 255, 0), -- Зеленый для союзников
-    Object = Color3.fromRGB(0, 255, 255), -- Голубой для объектов
+    Enemy = Color3.fromRGB(255, 0, 0),    -- Цвет врагов
+    Ally = Color3.fromRGB(0, 255, 0),     -- Цвет союзников
+    Object = Color3.fromRGB(0, 255, 255)  -- Цвет объектов
 }
 
--- Названия команд для Team Check
+-- Командные настройки
 ESP.TeamSettings = {
-    LocalTeam = "Survivors", -- Ваша команда
-    EnemyTeams = {"Infected"} -- Вражеские команды
+    LocalTeam = "",       -- Название вашей команды
+    EnemyTeams = {}       -- Названия вражеских команд
 }
 
-local runService = game:GetService("RunService")
-local camera = workspace.CurrentCamera
+-- Внутренние данные
+ESP._connections = {}
+ESP._objects = {}
 
--- Функция для проверки команды
-local function IsEnemy(playerTeam)
-    if not playerTeam then return true end
-    for _, enemyTeam in ipairs(ESP.TeamSettings.EnemyTeams) do
-        if playerTeam == enemyTeam then
-            return true
-        end
+-- Функция для создания текста
+local function createText(parent, text, color)
+    local billboard = Instance.new("BillboardGui")
+    billboard.Size = UDim2.new(0, 200, 0, 50)
+    billboard.Adornee = parent
+    billboard.AlwaysOnTop = true
+
+    local label = Instance.new("TextLabel", billboard)
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = color
+    label.TextStrokeTransparency = 0.5
+    label.Font = Enum.Font.SourceSansBold
+    label.TextSize = 14
+
+    return billboard
+end
+
+-- Функция для создания бокса
+local function createBox(part, color)
+    local box = Instance.new("BoxHandleAdornment")
+    box.Size = part.Size + Vector3.new(0.1, 0.1, 0.1)
+    box.Adornee = part
+    box.ZIndex = 5
+    box.AlwaysOnTop = true
+    box.Color3 = color
+    box.Transparency = 0.5
+    return box
+end
+
+-- Проверка на союзников
+local function isAlly(player)
+    if not ESP.Settings.TeamCheck or ESP.TeamSettings.LocalTeam == "" then
+        return false
     end
-    return false
+    return player.Team and player.Team.Name == ESP.TeamSettings.LocalTeam
 end
 
--- Рисование текста
-local function DrawText(position, text, size, color)
-    local textLabel = Instance.new("TextLabel")
-    textLabel.Text = text
-    textLabel.TextSize = size
-    textLabel.TextColor3 = color
-    textLabel.BackgroundTransparency = 1
-    textLabel.BorderSizePixel = 0
-    textLabel.Position = UDim2.new(0, position.X, 0, position.Y)
-    textLabel.Size = UDim2.new(0, 100, 0, 20)
-    textLabel.Parent = game.CoreGui
-    return textLabel
-end
+-- Функция для добавления ESP на игрока
+local function addPlayerESP(player)
+    local character = player.Character or player.CharacterAdded:Wait()
+    local humanoidRootPart = character:WaitForChild("HumanoidRootPart", 10)
+    local humanoid = character:WaitForChild("Humanoid", 10)
+    
+    if not humanoidRootPart or not humanoid then return end
 
--- Основная функция ESP
-function ESP:UpdatePlayers()
-    for _, player in pairs(game.Players:GetPlayers()) do
-        if player ~= game.Players.LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local rootPart = player.Character.HumanoidRootPart
-            local distance = (camera.CFrame.Position - rootPart.Position).Magnitude
+    local color = isAlly(player) and ESP.Colors.Ally or ESP.Colors.Enemy
 
-            -- Проверяем расстояние
-            if distance > ESP.Settings.MaxDistance then
-                continue
-            end
+    -- Создание текста имени
+    if ESP.Settings.Names then
+        local nameTag = createText(humanoidRootPart, player.Name, color)
+        nameTag.Parent = humanoidRootPart
+    end
 
-            -- Проверяем команды
-            local isEnemy = IsEnemy(player.Team and player.Team.Name)
-            local color = isEnemy and ESP.Colors.Enemy or ESP.Colors.Ally
+    -- Создание бокса
+    if ESP.Settings.Boxes then
+        local box = createBox(humanoidRootPart, color)
+        box.Parent = humanoidRootPart
+    end
 
-            -- Получаем экранные координаты
-            local screenPosition, onScreen = camera:WorldToScreenPoint(rootPart.Position)
+    -- Подсветка
+    if ESP.Settings.Highlight then
+        local highlight = Instance.new("Highlight")
+        highlight.Adornee = character
+        highlight.FillColor = color
+        highlight.OutlineColor = Color3.new(0, 0, 0)
+        highlight.FillTransparency = 0.7
+        highlight.Parent = character
+    end
 
-            if onScreen then
-                if ESP.Settings.Names then
-                    DrawText(Vector2.new(screenPosition.X, screenPosition.Y - 20), player.Name, 14, color)
+    -- Дистанция, здоровье и оружие
+    game:GetService("RunService").RenderStepped:Connect(function()
+        if humanoidRootPart and humanoid then
+            local distance = (workspace.CurrentCamera.CFrame.Position - humanoidRootPart.Position).Magnitude
+            if distance <= ESP.Settings.MaxDistance then
+                if ESP.Settings.Distance then
+                    local distanceText = string.format("Distance: %.1f", distance)
+                    humanoidRootPart.Name = distanceText
                 end
                 if ESP.Settings.HealthText then
-                    local health = math.floor(player.Character.Humanoid.Health)
-                    DrawText(Vector2.new(screenPosition.X, screenPosition.Y + 20), "Health: " .. health, 12, color)
-                end
-                if ESP.Settings.Distance then
-                    DrawText(Vector2.new(screenPosition.X, screenPosition.Y + 40), string.format("Distance: %.1f", distance), 12, color)
+                    local healthText = string.format("Health: %.0f%%", humanoid.Health / humanoid.MaxHealth * 100)
+                    humanoidRootPart.Name = healthText
                 end
                 if ESP.Settings.Weapon then
-                    local weapon = player.Character:FindFirstChildOfClass("Tool")
-                    if weapon then
-                        DrawText(Vector2.new(screenPosition.X, screenPosition.Y + 60), "Weapon: " .. weapon.Name, 12, ESP.Colors.Object)
+                    local tool = player.Character:FindFirstChildOfClass("Tool")
+                    if tool then
+                        humanoidRootPart.Name = "Weapon: " .. tool.Name
                     end
                 end
             end
         end
-    end
+    end)
 end
 
-function ESP:UpdateObjects(objectPath)
-    if not objectPath then return end
-    for _, object in pairs(objectPath:GetDescendants()) do
-        if object:IsA("BasePart") then
-            local distance = (camera.CFrame.Position - object.Position).Magnitude
+-- Функция для добавления ESP на объект
+local function addObjectESP(object)
+    local color = ESP.Colors.Object
 
-            -- Проверяем расстояние
-            if distance > ESP.Settings.MaxDistance then
-                continue
-            end
+    -- Создание текста имени
+    if ESP.Settings.Names then
+        local nameTag = createText(object, object.Name, color)
+        nameTag.Parent = object
+    end
 
-            -- Получаем экранные координаты
-            local screenPosition, onScreen = camera:WorldToScreenPoint(object.Position)
-
-            if onScreen then
-                if ESP.Settings.Names then
-                    DrawText(Vector2.new(screenPosition.X, screenPosition.Y - 20), object.Name, 14, ESP.Colors.Object)
-                end
-                if ESP.Settings.Distance then
-                    DrawText(Vector2.new(screenPosition.X, screenPosition.Y + 20), string.format("Distance: %.1f", distance), 12, ESP.Colors.Object)
-                end
-            end
-        end
+    -- Подсветка
+    if ESP.Settings.Highlight then
+        local highlight = Instance.new("Highlight")
+        highlight.Adornee = object
+        highlight.FillColor = color
+        highlight.OutlineColor = Color3.new(0, 0, 0)
+        highlight.FillTransparency = 0.7
+        highlight.Parent = object
     end
 end
 
 -- Запуск ESP
-function ESP:Start(objectPath)
-    spawn(function()
-        while true do
-            if ESP.Settings.Players then
-                self:UpdatePlayers()
-            end
-            if ESP.Settings.Objects and objectPath then
-                self:UpdateObjects(objectPath)
-            end
-            wait(ESP.Settings.UpdateRate)
+function ESP:Start(objects)
+    -- Добавление ESP для игроков
+    if ESP.Settings.Players then
+        for _, player in pairs(game.Players:GetPlayers()) do
+            addPlayerESP(player)
         end
-    end)
+        game.Players.PlayerAdded:Connect(addPlayerESP)
+    end
+
+    -- Добавление ESP для объектов
+    if ESP.Settings.Objects and objects then
+        for _, object in pairs(objects:GetChildren()) do
+            addObjectESP(object)
+        end
+        objects.ChildAdded:Connect(addObjectESP)
+    end
 end
 
 return ESP
