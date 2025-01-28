@@ -22,7 +22,7 @@ ESP.Colors = {
 
 -- Названия команд для Team Check
 ESP.TeamSettings = {
-    LocalTeam = "Survival", -- Ваша команда
+    LocalTeam = "Survivors", -- Ваша команда
     EnemyTeams = {"Infected"} -- Вражеские команды
 }
 
